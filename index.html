@@ -25,6 +25,81 @@
             background-color: #f8f9fa;
             color: #333;
             line-height: 1.6;
+            position: relative;
+        }
+        
+        /* Debug Panel */
+        .debug-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            background: rgba(29, 53, 87, 0.95);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            max-width: 400px;
+            display: none;
+            border: 2px solid var(--accent);
+        }
+        
+        .debug-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10000;
+            background: var(--primary);
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .debug-toggle:hover {
+            transform: scale(1.1);
+        }
+        
+        .debug-panel h3 {
+            color: var(--accent);
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+        }
+        
+        .debug-info {
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(255,255,255,0.1);
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        
+        .debug-item {
+            padding: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .debug-item:last-child {
+            border-bottom: none;
+        }
+        
+        .debug-highlight {
+            position: absolute;
+            border: 2px solid #ff0000;
+            background: rgba(255,0,0,0.1);
+            pointer-events: none;
+            z-index: 9998;
+            transition: all 0.3s ease;
         }
         
         /* Header */
@@ -94,6 +169,7 @@
             margin-top: 20px;
             transition: all 0.3s ease;
             box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
         }
         
         .cta-button:hover {
@@ -392,10 +468,34 @@
                 width: 80px;
                 height: 80px;
             }
+            
+            .debug-panel {
+                bottom: 80px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- Debug Button -->
+    <div class="debug-toggle" id="debugToggle">
+        <i class="fas fa-bug"></i>
+    </div>
+    
+    <!-- Debug Panel -->
+    <div class="debug-panel" id="debugPanel">
+        <h3>Debug Mode Actif</h3>
+        <p>Cliquez n'importe où pour voir les éléments à cette position</p>
+        <div class="debug-info" id="debugInfo">
+            <!-- Les informations de débogage apparaîtront ici -->
+        </div>
+        <div style="margin-top: 10px; font-size: 0.8rem; opacity: 0.8;">
+            Éléments trouvés : <span id="elementCount">0</span>
+        </div>
+    </div>
+    
     <!-- Hero Section -->
     <header class="hero">
         <div class="hero-content">
@@ -675,6 +775,165 @@
     </footer>
 
     <script>
+        // Fonction pour récupérer tous les éléments à une position donnée
+        function getAllElementsAt(x, y) {
+            const elements = [];
+            const backup = [];
+            let currentElement;
+            
+            try {
+                // Récupérer tous les éléments empilés à cette position
+                while ((currentElement = document.elementFromPoint(x, y)) && 
+                       !elements.includes(currentElement)) {
+                    
+                    // Sauvegarder l'élément et son style actuel
+                    elements.push(currentElement);
+                    backup.push({
+                        element: currentElement,
+                        originalPointerEvents: currentElement.style.pointerEvents || ''
+                    });
+                    
+                    // Masquer l'élément pour voir ce qu'il y a en dessous
+                    currentElement.style.pointerEvents = 'none';
+                }
+            } catch (error) {
+                console.error('Erreur dans getAllElementsAt:', error);
+            } finally {
+                // Toujours restaurer les styles, même en cas d'erreur
+                backup.forEach(({ element, originalPointerEvents }) => {
+                    element.style.pointerEvents = originalPointerEvents;
+                });
+            }
+            
+            return elements;
+        }
+
+        // Fonction pour créer un surlignage d'élément
+        function createHighlight(element) {
+            const rect = element.getBoundingClientRect();
+            const highlight = document.createElement('div');
+            highlight.className = 'debug-highlight';
+            highlight.style.left = rect.left + 'px';
+            highlight.style.top = rect.top + 'px';
+            highlight.style.width = rect.width + 'px';
+            highlight.style.height = rect.height + 'px';
+            document.body.appendChild(highlight);
+            return highlight;
+        }
+
+        // Fonction pour afficher les informations de débogage
+        function showDebugInfo(x, y, elements) {
+            const debugInfo = document.getElementById('debugInfo');
+            const elementCount = document.getElementById('elementCount');
+            
+            debugInfo.innerHTML = '';
+            elementCount.textContent = elements.length;
+            
+            // Supprimer les anciens surlignages
+            document.querySelectorAll('.debug-highlight').forEach(el => el.remove());
+            
+            if (elements.length === 0) {
+                debugInfo.innerHTML = '<div class="debug-item">Aucun élément trouvé à cette position</div>';
+                return;
+            }
+            
+            // Créer des surlignages pour chaque élément
+            elements.forEach((element, index) => {
+                const highlight = createHighlight(element);
+                highlight.style.zIndex = 9998 + index;
+                highlight.style.borderColor = index === 0 ? '#ff0000' : '#ff9900';
+                highlight.style.background = index === 0 ? 
+                    'rgba(255, 0, 0, 0.1)' : 
+                    'rgba(255, 153, 0, 0.1)';
+                
+                // Afficher les informations de l'élément
+                const debugItem = document.createElement('div');
+                debugItem.className = 'debug-item';
+                debugItem.style.borderLeft = `4px solid ${index === 0 ? '#ff0000' : '#ff9900'}`;
+                debugItem.style.marginLeft = '10px';
+                
+                const tagName = element.tagName.toLowerCase();
+                const elementId = element.id ? `#${element.id}` : '';
+                const elementClass = element.className ? `.${element.className.split(' ').join('.')}` : '';
+                const textContent = element.textContent ? 
+                    element.textContent.substring(0, 50) + (element.textContent.length > 50 ? '...' : '') : 
+                    '(vide)';
+                
+                debugItem.innerHTML = `
+                    <strong>Niveau ${index} ${index === 0 ? '(TOP)' : ''}</strong><br>
+                    <strong>Élément:</strong> ${tagName}${elementId}${elementClass}<br>
+                    <strong>Texte:</strong> ${textContent}<br>
+                    <strong>Dimensions:</strong> ${Math.round(element.getBoundingClientRect().width)}x${Math.round(element.getBoundingClientRect().height)}px
+                `;
+                
+                debugInfo.appendChild(debugItem);
+            });
+        }
+
+        // Gestionnaire d'événements pour le débogage
+        let isDebugMode = false;
+        const debugToggle = document.getElementById('debugToggle');
+        const debugPanel = document.getElementById('debugPanel');
+        
+        debugToggle.addEventListener('click', () => {
+            isDebugMode = !isDebugMode;
+            debugPanel.style.display = isDebugMode ? 'block' : 'none';
+            debugToggle.innerHTML = isDebugMode ? 
+                '<i class="fas fa-times"></i>' : 
+                '<i class="fas fa-bug"></i>';
+            
+            if (isDebugMode) {
+                document.getElementById('debugInfo').innerHTML = 
+                    '<div class="debug-item">Mode débogage activé. Cliquez n\'importe où sur la page pour inspecter les éléments.</div>';
+                document.getElementById('elementCount').textContent = '0';
+            } else {
+                // Supprimer les surlignages
+                document.querySelectorAll('.debug-highlight').forEach(el => el.remove());
+            }
+        });
+
+        // Écouteur d'événements global pour le débogage
+        document.addEventListener('click', (event) => {
+            if (!isDebugMode) return;
+            
+            event.preventDefault();
+            event.stopPropagation();
+            
+            const x = event.clientX;
+            const y = event.clientY;
+            
+            // Récupérer tous les éléments à cette position
+            const elements = getAllElementsAt(x, y);
+            
+            // Afficher les informations de débogage
+            showDebugInfo(x, y, elements);
+        });
+
+        // Écouteur pour les mouvements de souris (optionnel - pour un effet de survol)
+        document.addEventListener('mousemove', (event) => {
+            if (!isDebugMode) return;
+            
+            // Supprimer les anciens surlignages temporaires
+            document.querySelectorAll('.debug-highlight-temp').forEach(el => el.remove());
+            
+            // Créer un surlignage temporaire pour l'élément du dessus
+            const topElement = document.elementFromPoint(event.clientX, event.clientY);
+            if (topElement) {
+                const highlight = createHighlight(topElement);
+                highlight.className = 'debug-highlight debug-highlight-temp';
+                highlight.style.borderColor = '#00ff00';
+                highlight.style.background = 'rgba(0, 255, 0, 0.05)';
+                highlight.style.zIndex = '9997';
+                
+                // Supprimer après 100ms
+                setTimeout(() => {
+                    if (highlight.parentNode) {
+                        highlight.parentNode.removeChild(highlight);
+                    }
+                }, 100);
+            }
+        });
+
         // Smooth scrolling for anchor links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function(e) {
@@ -744,6 +1003,7 @@
         
         // Initialize page
         console.log('Maroc Aventures - 8 jours à 1000 DH - Page chargée avec succès');
+        console.log('Fonction getAllElementsAt disponible. Activez le mode débogage avec le bouton en bas à droite.');
     </script>
 </body>
 </html>
